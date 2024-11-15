@@ -1,95 +1,298 @@
+import { BottomSheetModal } from '@gorhom/bottom-sheet';
+import { format } from 'date-fns';
 import * as React from 'react';
-import { View } from 'react-native';
-import Animated, { FadeInUp, FadeOutDown, LayoutAnimationConfig } from 'react-native-reanimated';
-import { Info } from '~/lib/icons/Info';
-import { Avatar, AvatarFallback, AvatarImage } from '~/components/ui/avatar';
-import { Button } from '~/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from '~/components/ui/card';
-import { Progress } from '~/components/ui/progress';
+import { FlatList, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import ImageView from 'react-native-image-viewing';
+import { Message } from '~/components/chat/Message';
+import { MessageInput } from '~/components/chat/MessageInput';
+import { ParticipantBottomSheet } from '~/components/chat/ParticipantBottomSheet';
+import { ReactionBottomSheet } from '~/components/chat/ReactionBottomSheet';
 import { Text } from '~/components/ui/text';
-import { Tooltip, TooltipContent, TooltipTrigger } from '~/components/ui/tooltip';
+import { api } from '~/lib/api';
+import { useChatStore } from '~/lib/store';
+import type { TMessage, TParticipant } from '~/types/chat';
+import { useNetworkStatus } from '~/lib/useNetworkStatus';
 
-const GITHUB_AVATAR_URI =
-  'https://i.pinimg.com/originals/ef/a2/8d/efa28d18a04e7fa40ed49eeb0ab660db.jpg';
+const POLLING_INTERVAL = 3000; // 3 seconds
 
-export default function Screen() {
-  const [progress, setProgress] = React.useState(78);
+export default function ChatScreen() {
+  const [selectedMessage, setSelectedMessage] = React.useState<TMessage | null>(null);
+  const [selectedParticipant, setSelectedParticipant] = React.useState<TParticipant | null>(null);
+  const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
+  const [replyToMessage, setReplyToMessage] = React.useState<TMessage | null>(null);
+  const [isLoadingMore, setIsLoadingMore] = React.useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = React.useState(true);
+  
+  const reactionsSheetRef = React.useRef<BottomSheetModal>(null);
+  const participantSheetRef = React.useRef<BottomSheetModal>(null);
+  
+  const { 
+    messages, 
+    participants, 
+    setMessages, 
+    addMessages,
+    setParticipants,
+    updateMessages,
+    updateParticipants,
+    lastUpdateTimestamp,
+    setLastUpdateTimestamp,
+    serverInfo,
+    setServerInfo
+  } = useChatStore();
 
-  function updateProgressValue() {
-    setProgress(Math.floor(Math.random() * 100));
-  }
+  const isOnline = useNetworkStatus();
+  
+  const participantMap = React.useMemo(() => {
+    return participants.reduce((acc, participant) => {
+      acc[participant.uuid] = participant;
+      return acc;
+    }, {} as Record<string, TParticipant>);
+  }, [participants]);
+
+  const getParticipant = React.useCallback((uuid: string) => {
+    return participantMap[uuid];
+  }, [participantMap]);
+
+  const handleAddReaction = React.useCallback(async (messageId: string, reaction: string) => {
+    if (!isOnline) {
+      // Handle offline case if needed
+      return;
+    }
+
+    try {
+      // You'll need to add this endpoint to your API
+      const updatedMessage = await api.addReaction(messageId, reaction);
+      updateMessages([updatedMessage]);
+    } catch (error) {
+      console.error('Failed to add reaction:', error);
+    }
+  }, [isOnline, updateMessages]);
+
+  const renderMessage = React.useCallback(({ item }: { item: TMessage & { isPending?: boolean } }) => {
+    const participant = getParticipant(item.authorUuid);
+    if (!participant) return null;
+
+    return (
+      <Message
+        message={item}
+        participant={participant}
+        showHeader={true}
+        onPressImage={(imageUrl) => setSelectedImage(imageUrl)}
+        onPressReactions={(message) => {
+          setSelectedMessage(message);
+          reactionsSheetRef.current?.present();
+        }}
+        onPressParticipant={(participant) => {
+          setSelectedParticipant(participant);
+          participantSheetRef.current?.present();
+        }}
+        onLongPress={() => handleLongPressMessage(item)}
+      />
+    );
+  }, [getParticipant]);
+
+  const preparedMessages = React.useMemo(() => {
+    const allMessages = [
+      ...messages,
+      ...useChatStore.getState().pendingMessages,
+    ].sort((a, b) => b.sentAt - a.sentAt); // Changed to sort oldest to newest
+
+    const prepared: Array<TMessage & { type: 'message' | 'date'; dateString?: string }> = [];
+    
+    allMessages.forEach((message, index) => {
+      // Add the message first
+      prepared.push({
+        ...message,
+        type: 'message',
+      });
+
+      // Check if we need to add a date separator
+      const currentDate = new Date(message.sentAt).setHours(0, 0, 0, 0);
+      const nextMessage = allMessages[index + 1];
+      
+      if (nextMessage) {
+        const nextDate = new Date(nextMessage.sentAt).setHours(0, 0, 0, 0);
+        
+        // If dates are different, add a separator
+        if (currentDate !== nextDate) {
+          prepared.push({
+            ...message,
+            type: 'date',
+            dateString: format(nextMessage.sentAt, 'EEEE, MMMM do, yyyy'),
+          });
+        }
+      }
+    });
+
+    return prepared;
+  }, [messages]);
+
+  const renderDateSeparator = React.useCallback((dateString: string) => {
+    return (
+      <View className="py-2 px-4">
+        <Text className="text-center text-xs text-muted-foreground">
+          {dateString}
+        </Text>
+      </View>
+    );
+  }, []);
+
+  const renderItem = React.useCallback(({ 
+    item 
+  }: { 
+    item: TMessage & { type: 'message' | 'date'; dateString?: string }
+  }) => {
+    if (item.type === 'date' && item.dateString) {
+      return renderDateSeparator(item.dateString);
+    }
+    return renderMessage({ item });
+  }, [renderMessage, renderDateSeparator]);
+
+  const loadInitialData = React.useCallback(async () => {
+    try {
+      const info = await api.getInfo();
+      setServerInfo(info);
+      
+      const [messagesData, participantsData] = await Promise.all([
+        api.getLatestMessages(),
+        api.getAllParticipants(),
+      ]);
+      
+      setMessages(messagesData);
+      setParticipants(participantsData);
+    } catch (error) {
+      console.error('Failed to load initial data:', error);
+    }
+  }, []);
+
+  const pollUpdates = React.useCallback(async () => {
+    try {
+      const [messageUpdates, participantUpdates] = await Promise.all([
+        api.getMessageUpdates(lastUpdateTimestamp),
+        api.getParticipantUpdates(lastUpdateTimestamp),
+      ]);
+
+      if (messageUpdates.length > 0) {
+        updateMessages(messageUpdates);
+      }
+      
+      if (participantUpdates.length > 0) {
+        updateParticipants(participantUpdates);
+      }
+
+      setLastUpdateTimestamp(Date.now());
+    } catch (error) {
+      console.error('Failed to poll updates:', error);
+    }
+  }, [lastUpdateTimestamp]);
+
+  const loadMoreMessages = React.useCallback(async () => {
+    if (!hasMoreMessages || isLoadingMore || !messages.length || !isOnline) return;
+
+    try {
+      setIsLoadingMore(true);
+      // Get the oldest message's UUID
+      const oldestMessage = messages[messages.length - 1];
+      const olderMessages = await api.getOlderMessages(oldestMessage.uuid);
+      
+      if (olderMessages.length === 0) {
+        setHasMoreMessages(false);
+        return;
+      }
+
+      // Use addMessages instead of setMessages
+      addMessages(olderMessages);
+    } catch (error) {
+      console.error('Failed to load more messages:', error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [messages, isLoadingMore, hasMoreMessages, isOnline, addMessages]);
+
+  const renderFooter = React.useCallback(() => {
+    if (!hasMoreMessages) return null;
+    
+    return (
+      <View className="py-4 px-4">
+        {isLoadingMore ? (
+          <Text className="text-center text-muted-foreground">Loading more messages...</Text>
+        ) : null}
+      </View>
+    );
+  }, [isLoadingMore, hasMoreMessages]);
+
+  React.useEffect(() => {
+    loadInitialData();
+  }, [loadInitialData]);
+
+  React.useEffect(() => {
+    const interval = setInterval(pollUpdates, POLLING_INTERVAL);
+    return () => clearInterval(interval);
+  }, [pollUpdates]);
+
+  const handleLongPressMessage = (message: TMessage) => {
+    setReplyToMessage(message);
+  };
+
+  const getItemLayout = (_: any, index: number) => ({
+    length: 100, // approximate height of a message
+    offset: 100 * index,
+    index,
+  });
+
   return (
-    <View className='flex-1 justify-center items-center gap-5 p-6 bg-secondary/30'>
-      <Card className='w-full max-w-sm p-6 rounded-2xl'>
-        <CardHeader className='items-center'>
-          <Avatar alt="Rick Sanchez's Avatar" className='w-24 h-24'>
-            <AvatarImage source={{ uri: GITHUB_AVATAR_URI }} />
-            <AvatarFallback>
-              <Text>RS</Text>
-            </AvatarFallback>
-          </Avatar>
-          <View className='p-3' />
-          <CardTitle className='pb-2 text-center'>Rick Sanchez</CardTitle>
-          <View className='flex-row'>
-            <CardDescription className='text-base font-semibold'>Scientist</CardDescription>
-            <Tooltip delayDuration={150}>
-              <TooltipTrigger className='px-2 pb-0.5 active:opacity-50'>
-                <Info size={14} strokeWidth={2.5} className='w-4 h-4 text-foreground/70' />
-              </TooltipTrigger>
-              <TooltipContent className='py-2 px-4 shadow'>
-                <Text className='native:text-lg'>Freelance</Text>
-              </TooltipContent>
-            </Tooltip>
+    <SafeAreaView className="flex-1 bg-background">
+      {!isOnline && (
+        <View className="bg-destructive px-4 py-2">
+          <Text className="text-destructive-foreground text-center">
+            You're offline. Messages will be sent when you're back online.
+          </Text>
+        </View>
+      )}
+      
+      <FlatList
+        data={preparedMessages}
+        renderItem={renderItem}
+        keyExtractor={(item) => `${item.type}-${item.uuid}`}
+        inverted
+        ListEmptyComponent={() => (
+          <View className="p-4">
+            <Text className="text-center text-muted-foreground">No messages yet</Text>
           </View>
-        </CardHeader>
-        <CardContent>
-          <View className='flex-row justify-around gap-3'>
-            <View className='items-center'>
-              <Text className='text-sm text-muted-foreground'>Dimension</Text>
-              <Text className='text-xl font-semibold'>C-137</Text>
-            </View>
-            <View className='items-center'>
-              <Text className='text-sm text-muted-foreground'>Age</Text>
-              <Text className='text-xl font-semibold'>70</Text>
-            </View>
-            <View className='items-center'>
-              <Text className='text-sm text-muted-foreground'>Species</Text>
-              <Text className='text-xl font-semibold'>Human</Text>
-            </View>
-          </View>
-        </CardContent>
-        <CardFooter className='flex-col gap-3 pb-0'>
-          <View className='flex-row items-center overflow-hidden'>
-            <Text className='text-sm text-muted-foreground'>Productivity:</Text>
-            <LayoutAnimationConfig skipEntering>
-              <Animated.View
-                key={progress}
-                entering={FadeInUp}
-                exiting={FadeOutDown}
-                className='w-11 items-center'
-              >
-                <Text className='text-sm font-bold text-sky-600'>{progress}%</Text>
-              </Animated.View>
-            </LayoutAnimationConfig>
-          </View>
-          <Progress value={progress} className='h-2' indicatorClassName='bg-sky-600' />
-          <View />
-          <Button
-            variant='outline'
-            className='shadow shadow-foreground/5'
-            onPress={updateProgressValue}
-          >
-            <Text>Update</Text>
-          </Button>
-        </CardFooter>
-      </Card>
-    </View>
+        )}
+        ListFooterComponent={renderFooter}
+        onEndReached={loadMoreMessages}
+        onEndReachedThreshold={0.3}
+        contentContainerStyle={{ flexGrow: 1 }}
+        refreshing={isLoadingMore}
+        maintainVisibleContentPosition={{
+          minIndexForVisible: 0,
+          autoscrollToTopThreshold: messages.length, // Prevent auto-scrolling
+        }}
+      />
+      
+      <MessageInput 
+        replyToMessage={replyToMessage}
+        onCancelReply={() => setReplyToMessage(null)}
+      />
+
+      <ReactionBottomSheet
+        message={selectedMessage}
+        bottomSheetRef={reactionsSheetRef}
+      />
+
+      <ParticipantBottomSheet
+        participant={selectedParticipant}
+        bottomSheetRef={participantSheetRef}
+      />
+
+      <ImageView
+        images={selectedImage ? [{ uri: selectedImage }] : []}
+        imageIndex={0}
+        visible={!!selectedImage}
+        onRequestClose={() => setSelectedImage(null)}
+      />
+    </SafeAreaView>
   );
 }
