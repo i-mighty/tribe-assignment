@@ -1,16 +1,52 @@
-# Starter base
+# Tribe Chat
 
-A starting point to help you set up your project quickly and use the common components provided by `react-native-reusables`. The idea is to make it easier for you to get started.
+A single-room chat application built with Expo React Native, featuring real-time messaging, reactions, and offline support.
 
 ## Features
 
-- NativeWind v4
-- Dark and light mode
-    - Android Navigation Bar matches mode
-    - Persistant mode
-- Common components
-    - ThemeToggle, Avatar, Button, Card, Progress, Text, Tooltip
+### Core Features
+- 💬 Real-time messaging with offline support
+- 👥 Participant profiles with detailed info
+- 🎭 Message reactions with participant details
+- 💾 Persistent data with AsyncStorage
+- 🌓 Dark/Light mode with system theme support
+- 📱 Cross-platform (iOS, Android)
 
-<img src="https://github.com/mrzachnugent/react-native-reusables/assets/63797719/42c94108-38a7-498b-9c70-18640420f1bc"
-     alt="starter-base-template"
-     style="width:270px;" />
+### Message Features
+- 📝 Message editing indicators
+- 🔄 Message reactions
+- 💭 Reply to messages
+- 🏷️ @mentions support
+- 📅 Date separators
+- 🖼️ Image attachments
+
+### Technical Features
+- ♾️ Infinite scroll for message history
+- 🔄 Real-time updates via polling
+- 📶 Offline message queue
+- ⚡ Optimized rendering
+- 🎨 Modern UI with NativeWind
+
+## Tech Stack
+
+- Expo
+- React Native
+- TypeScript
+- NativeWind (TailwindCSS)
+- Zustand (State Management)
+- React Native Reusables
+- Bottom Sheet
+- React Native Reanimated
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js (v18 or newer)
+- npm or yarn
+- Expo CLI
+- iOS Simulator or Android Emulator
+
+### Installation
+
+1. Clone the repository

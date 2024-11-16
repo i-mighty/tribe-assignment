@@ -71,7 +71,7 @@ export function ReactionBottomSheet({ message, bottomSheetRef }: ReactionBottomS
                 </Text>
               </View>
               {reactions.map((reaction) => {
-                const participant = getParticipant(reaction.participantUuid);
+                const participant = getParticipant(reaction.authorUuid);
                 if (!participant) return null;
 
                 return (
