@@ -49,8 +49,8 @@ export function Message({
       className={`px-4 py-2 ${isCurrentUser ? 'items-end' : 'items-start'}`}
     >
       {showHeader && !isCurrentUser && (
-        <View className="flex-row items-center space-x-2 mb-1">
-          <Avatar alt={`${participant.name}'s avatar`}>
+        <View className="flex-row items-center mb-1">
+          <Avatar alt={`${participant.name}'s avatar`} className="mr-3">
             <AvatarImage source={{ uri: participant.avatarUrl }} />
             <AvatarFallback>
               {participant.name.slice(0, 2).toUpperCase()}

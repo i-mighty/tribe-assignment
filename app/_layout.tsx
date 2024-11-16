@@ -13,6 +13,7 @@ import { useColorScheme } from '~/lib/useColorScheme';
 import { PortalHost } from '@rn-primitives/portal';
 import { ThemeToggle } from '~/components/ThemeToggle';
 import { setAndroidNavigationBar } from '~/lib/android-navigation-bar';
+import { ChatHeader } from '~/components/chat/ChatHeader';
 
 const LIGHT_THEME: Theme = {
   dark: false,
@@ -78,14 +79,13 @@ function RootLayoutNav() {
   return (
     <ThemeProvider value={isDarkColorScheme ? DARK_THEME : LIGHT_THEME}>
       <StatusBar style={isDarkColorScheme ? 'light' : 'dark'} />
-      <Stack>
-        <Stack.Screen
-          name='index'
-          options={{
-            title: 'Tribe Chat Assignment',
-            headerRight: () => <ThemeToggle />,
-          }}
-        />
+      <Stack
+        screenOptions={{
+          header: () => <ChatHeader />,
+          contentStyle: { backgroundColor: 'hsl(var(--background))' },
+        }}
+      >
+        <Stack.Screen name="index" />
       </Stack>
       <PortalHost />
     </ThemeProvider>

@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { uniqBy } from 'lodash';
 import type { ServerInfo, TMessage, TParticipant } from '~/types/chat';
 
 // Mock data for testing
@@ -46,12 +47,14 @@ const MOCK_MESSAGES: TMessage[] = [
       {
         uuid: 'reaction1',
         value: '👋',
-        participantUuid: 'user2',
+        authorUuid: 'user2',
+        timestamp: Date.now() - 7100000,
       },
       {
         uuid: 'reaction2',
         value: '❤️',
-        participantUuid: 'you',
+        authorUuid: 'you',
+        timestamp: Date.now() - 7000000,
       }
     ],
   },
@@ -84,12 +87,14 @@ const MOCK_MESSAGES: TMessage[] = [
       {
         uuid: 'reaction3',
         value: '❤️',
-        participantUuid: 'user2',
+        authorUuid: 'user2',
+        timestamp: Date.now() - 6700000,
       },
       {
         uuid: 'reaction4',
         value: '👍',
-        participantUuid: 'you',
+        authorUuid: 'you',
+        timestamp: Date.now() - 6600000,
       },
     ],
   },
@@ -101,6 +106,7 @@ interface ChatStore {
   participants: TParticipant[];
   lastUpdateTimestamp: number;
   pendingMessages: TMessage[];
+  isOnline: boolean;
   setServerInfo: (info: ServerInfo) => void;
   setMessages: (messages: TMessage[]) => void;
   addMessages: (messages: TMessage[]) => void;
@@ -108,39 +114,26 @@ interface ChatStore {
   setParticipants: (participants: TParticipant[]) => void;
   updateParticipants: (participants: TParticipant[]) => void;
   setLastUpdateTimestamp: (timestamp: number) => void;
-  addPendingMessage: (message: { 
-    text: string; 
-    replyToMessageUuid?: string;
-  }) => void;
+  addPendingMessage: (message: { text: string; replyToMessageUuid?: string }) => void;
   removePendingMessage: (localId: string) => void;
+  setIsOnline: (isOnline: boolean) => void;
 }
 
 export const useChatStore = create<ChatStore>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       serverInfo: null,
-      messages: [],
-      participants: [],
+      messages: MOCK_MESSAGES,
+      participants: MOCK_PARTICIPANTS,
       lastUpdateTimestamp: Date.now(),
       pendingMessages: [],
-      setServerInfo: (info) => {
-        const currentInfo = get().serverInfo;
-        if (currentInfo && currentInfo.sessionUuid !== info.sessionUuid) {
-          set({
-            messages: MOCK_MESSAGES,
-            participants: MOCK_PARTICIPANTS,
-            lastUpdateTimestamp: Date.now(),
-            pendingMessages: [],
-            serverInfo: info,
-          });
-        } else {
-          set({ serverInfo: info });
-        }
-      },
+      isOnline: true,
+      setServerInfo: (info) => set({ serverInfo: info }),
       setMessages: (messages) => set({ messages }),
-      addMessages: (messages) =>
+      addMessages: (newMessages) =>
         set((state) => ({
-          messages: [...messages, ...state.messages],
+          messages: uniqBy([...state.messages, ...newMessages], 'uuid')
+            .sort((a, b) => a.sentAt - b.sentAt)
         })),
       updateMessages: (messages) =>
         set((state) => ({
@@ -175,6 +168,7 @@ export const useChatStore = create<ChatStore>()(
         set((state) => ({
           pendingMessages: state.pendingMessages.filter(msg => msg.uuid !== localId),
         })),
+      setIsOnline: (isOnline) => set({ isOnline }),
     }),
     {
       name: 'chat-storage',
@@ -187,4 +181,4 @@ export const useChatStore = create<ChatStore>()(
       }),
     }
   )
-); 
+);
